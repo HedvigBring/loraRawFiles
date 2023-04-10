@@ -9,6 +9,8 @@ from torchvision import transforms
 import glob
 from .preprocess_files import face_mask_google_mediapipe
 
+import numpy as np
+
 OBJECT_TEMPLATE = [
     "a photo of a {}",
     "a rendering of a {}",
@@ -172,18 +174,20 @@ class PivotalTuningDatasetCapation(Dataset):
             possibily_src_images = (
                 glob.glob(str(instance_data_root) + "/*.jpg")
                 + glob.glob(str(instance_data_root) + "/*.png")
+                + glob.glob(str(instance_data_root) + "/*.r32")
                 + glob.glob(str(instance_data_root) + "/*.jpeg")
             )
             possibily_src_images = (
                 set(possibily_src_images)
                 - set(glob.glob(str(instance_data_root) + "/*mask.png"))
-                - set([str(instance_data_root) + "/caption.txt"])
+                - set([str(instance_data_root) + "/*.txt"])
             )
 
             self.instance_images_path = list(set(possibily_src_images))
             self.captions = [
                 x.split("/")[-1].split(".")[0] for x in self.instance_images_path
             ]
+            print(self.captions)
 
         assert (
             len(self.instance_images_path) > 0
@@ -235,6 +239,8 @@ class PivotalTuningDatasetCapation(Dataset):
         self._length = self.num_instance_images
 
         self.h_flip = h_flip
+
+        # IMAGE (JPG, PNG)
         self.image_transforms = transforms.Compose(
             [
                 transforms.Resize(
@@ -242,14 +248,32 @@ class PivotalTuningDatasetCapation(Dataset):
                 )
                 if resize
                 else transforms.Lambda(lambda x: x),
-                transforms.ColorJitter(0.1, 0.1)
-                if color_jitter
-                else transforms.Lambda(lambda x: x),
-                transforms.CenterCrop(size),
+                # transforms.ColorJitter(0.1, 0.1)
+                # if color_jitter
+                # else transforms.Lambda(lambda x: x),
+                # transforms.CenterCrop(size),
                 transforms.ToTensor(),
-                transforms.Normalize([0.5], [0.5]),
+                # transforms.Normalize([0.5], [0.5]),
             ]
         )
+
+
+        # RAW FILES
+        # self.image_transforms = transforms.Compose(
+        #     [
+        #         transforms.ToTensor(),
+        #         transforms.Resize(
+        #             size, interpolation=transforms.InterpolationMode.BILINEAR
+        #         )
+        #         if resize
+        #         else transforms.Lambda(lambda x: x),
+        #         transforms.ColorJitter(0.1, 0.1)
+        #         if color_jitter
+        #         else transforms.Lambda(lambda x: x),
+        #         transforms.CenterCrop(size),
+        #         transforms.Normalize([0.5], [0.5]),
+        #     ]
+        # )
 
         self.blur_amount = blur_amount
 
@@ -258,6 +282,18 @@ class PivotalTuningDatasetCapation(Dataset):
 
     def __getitem__(self, index):
         example = {}
+        dt = np.dtype(np.single)
+        dt = dt.newbyteorder('<')
+        # file = open(self.instance_images_path[index % self.num_instance_images], 'rb')
+
+        # RAW FILE HANDLING
+        # binarybuffer = np.fromfile(self.instance_images_path[index % self.num_instance_images], dt)
+        # instance_image = np.ndarray(shape=(512, 512), dtype=dt, buffer=binarybuffer)
+        # img2 = np.stack((instance_image,)*3, axis=2)
+        # np.moveaxis(img2, 2, 0)
+        # example["instance_images"] = self.image_transforms(img2)
+
+        # IMAGE HANDLING (JPG, PNG)
         instance_image = Image.open(
             self.instance_images_path[index % self.num_instance_images]
         )
@@ -283,6 +319,7 @@ class PivotalTuningDatasetCapation(Dataset):
                 for token, value in self.token_map.items():
                     text = text.replace(token, value)
 
+        # text = "erosion"
         print(text)
 
         if self.use_mask:
@@ -294,12 +331,12 @@ class PivotalTuningDatasetCapation(Dataset):
                 + 1.0
             )
 
-        if self.h_flip and random.random() > 0.5:
-            hflip = transforms.RandomHorizontalFlip(p=1)
+        # if self.h_flip and random.random() > 0.5:
+        #     hflip = transforms.RandomHorizontalFlip(p=1)
 
-            example["instance_images"] = hflip(example["instance_images"])
-            if self.use_mask:
-                example["mask"] = hflip(example["mask"])
+        #     example["instance_images"] = hflip(example["instance_images"])
+        #     if self.use_mask:
+        #         example["mask"] = hflip(example["mask"])
 
         example["instance_prompt_ids"] = self.tokenizer(
             text,
